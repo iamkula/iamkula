@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KULA - A Quantum Journey</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #00000a;
+            --text-color: #e0e0e0;
+            --glow-color: rgba(138, 43, 226, 0.7); /* A vibrant purple */
+            --glow-color-light: rgba(160, 82, 224, 0.5);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden; /* Critical: We control the scroll */
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Space Mono', monospace;
+        }
+
+        #bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .overlay-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allow clicks to pass through to the canvas if needed */
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #kula-title {
+            font-family: 'Audiowide', cursive;
+            font-size: clamp(4rem, 15vw, 12rem);
+            font-weight: 400;
+            color: #fff;
+            text-shadow: 
+                0 0 10px #fff,
+                0 0 20px var(--glow-color),
+                0 0 40px var(--glow-color),
+                0 0 70px var(--glow-color);
+            letter-spacing: 0.1em;
+            /* This element will be controlled by Three.js, so CSS is for fallback */
+            opacity: 0; /* Hide the HTML element, we'll render it in WebGL */
+        }
+        
+        .ui-container {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            pointer-events: all;
+            z-index: 20;
+        }
+
+        .clock-container {
+            font-size: clamp(0.8rem, 1.5vw, 1rem);
+            letter-spacing: 2px;
+            text-shadow: 0 0 5px var(--glow-color-light);
+            display: flex;
+            flex-direction: column; /* Vertical alignment */
+            gap: 0.5rem;
+            background: rgba(0,0,0,0.2);
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(138, 43, 226, 0.3);
+            backdrop-filter: blur(5px);
+        }
+        
+        .scroll-indicator {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+            animation: fadeInOut 3s infinite;
+        }
+
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
+        }
+
+        .planet-label {
+            position: fixed;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            z-index: 100;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: 1px solid var(--glow-color);
+            font-size: 14px;
+            white-space: nowrap;
+            transform: translate(-50%, -150%); /* Position above the planet */
+            box-shadow: 0 0 15px var(--glow-color);
+        }
+
+        .planet-label.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+
+    <div class="ui-container">
+        <div class="clock-container">
+            <div id="china-time"></div>
+            <div id="uk-time"></div>
+        </div>
+    </div>
+    
+    <div class="scroll-indicator">SCROLL TO COLLAPSE / EXPAND REALITY</div>
+
+    <div id="planet-label" class="planet-label"></div>
+
+    <!-- Libraries from CDN -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+                "gsap": "https://unpkg.com/gsap@3.12.5/index.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { gsap } from 'gsap';
+        import { FontLoader } from 'https://unpkg.com/three@0.164.1/examples/jsm/loaders/FontLoader.js';
+        import { TextGeometry } from 'https://unpkg.com/three@0.164.1/examples/jsm/geometries/TextGeometry.js';
+
+        class QuantumWebsite {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+                this.renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('bg-canvas'), antialias: true });
+                this.raycaster = new THREE.Raycaster();
+                this.mouse = new THREE.Vector2(-100, -100); // Initialize off-screen
+                this.normalizedMouse = new THREE.Vector2();
+
+                this.planets = [];
+                this.comets = [];
+                this.interactiveObjects = [];
+                this.clock = new THREE.Clock();
+                this.scrollProgress = 0;
+                
+                this.planetLabel = document.getElementById('planet-label');
+                this.hoveredPlanet = null;
+
+                this._init();
+            }
+
+            _init() {
+                this._setupRenderer();
+                this._setupCamera();
+                this._setupLights();
+                
+                this._createStaticStars();
+                this._createSolarSystem();
+                this._createKula();
+                this._createQuantumField();
+                this._createComets();
+
+                this._setupEventListeners();
+                this._setupClocks();
+
+                this._createMainTimeline();
+                
+                this._animate();
+            }
+
+            _setupRenderer() {
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            }
+
+            _setupCamera() {
+                this.camera.position.z = 100;
+                this.camera.position.y = 20;
+                this.camera.lookAt(this.scene.position);
+            }
+
+            _setupLights() {
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
+                this.scene.add(ambientLight);
+            }
+
+            _createStaticStars() {
+                const starVertices = [];
+                for (let i = 0; i < 15000; i++) {
+                    const x = (Math.random() - 0.5) * 2000;
+                    const y = (Math.random() - 0.5) * 2000;
+                    const z = (Math.random() - 0.5) * 2000;
+                    starVertices.push(x, y, z);
+                }
+                const starGeometry = new THREE.BufferGeometry();
+                starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+                const starMaterial = new THREE.PointsMaterial({
+                    color: 0xffffff,
+                    size: 0.2,
+                    transparent: true,
+                    opacity: 0.8,
+                    sizeAttenuation: true
+                });
+                this.stars = new THREE.Points(starGeometry, starMaterial);
+                this.scene.add(this.stars);
+            }
+
+            _createSolarSystem() {
+                // Sun
+                const sunGeometry = new THREE.IcosahedronGeometry(10, 3);
+                const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffddaa, wireframe: true });
+                this.sun = new THREE.Mesh(sunGeometry, sunMaterial);
+                
+                const sunGlowMaterial = new THREE.ShaderMaterial({
+                    uniforms: {
+                        'c': { type: 'f', value: 0.1 },
+                        'p': { type: 'f', value: 6.0 },
+                        glowColor: { type: 'c', value: new THREE.Color(0xffaa33) },
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        void main() {
+                            vNormal = normalize( normalMatrix * normal );
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform vec3 glowColor;
+                        uniform float c;
+                        uniform float p;
+                        varying vec3 vNormal;
+                        void main() {
+                            float intensity = pow( c - dot( vNormal, vec3( 0.0, 0.0, 1.0 ) ), p );
+                            gl_FragColor = vec4( glowColor, 1.0 ) * intensity;
+                        }
+                    `,
+                    side: THREE.BackSide,
+                    blending: THREE.AdditiveBlending,
+                    transparent: true
+                });
+                const sunGlow = new THREE.Mesh(sunGeometry.clone().scale(1.3, 1.3, 1.3), sunGlowMaterial);
+                this.sun.add(sunGlow);
+                this.scene.add(this.sun);
+
+                // Planets Data
+                const planetData = [
+                    { name: "Mercury", color: 0xaaaaaa, radius: 20, size: 0.8, speed: 0.008 },
+                    { name: "Venus", color: 0xedc9af, radius: 30, size: 1.2, speed: 0.006 },
+                    { name: "Earth", color: 0x87ceeb, radius: 42, size: 1.3, speed: 0.005 },
+                    { name: "Mars", color: 0xd86c3d, radius: 55, size: 1.0, speed: 0.004 },
+                    { name: "Jupiter", color: 0xf4a460, radius: 80, size: 3.0, speed: 0.002 },
+                    { name: "Saturn", color: 0xf0e68c, radius: 110, size: 2.5, speed: 0.0015, hasRing: true },
+                    { name: "Uranus", color: 0xadd8e6, radius: 135, size: 2.0, speed: 0.001 },
+                    { name: "Neptune", color: 0x4169e1, radius: 155, size: 1.9, speed: 0.0008 }
+                ];
+
+                planetData.forEach(data => {
+                    const planetGroup = new THREE.Group();
+                    
+                    // Orbit
+                    const orbitCurve = new THREE.EllipseCurve(0, 0, data.radius, data.radius, 0, 2 * Math.PI, false, 0);
+                    const orbitPoints = orbitCurve.getPoints(200);
+                    const orbitGeometry = new THREE.BufferGeometry().setFromPoints(orbitPoints);
+                    const orbitMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2 });
+                    const orbit = new THREE.Line(orbitGeometry, orbitMaterial);
+                    orbit.rotation.x = Math.PI / 2;
+                    planetGroup.add(orbit);
+
+                    // Planet
+                    const planetGeometry = new THREE.IcosahedronGeometry(data.size, 1);
+                    const planetMaterial = new THREE.MeshBasicMaterial({ color: data.color, wireframe: true });
+                    const planetMesh = new THREE.Mesh(planetGeometry, planetMaterial);
+                    planetMesh.position.x = data.radius;
+
+                    const planetPivot = new THREE.Group();
+                    planetPivot.add(planetMesh);
+                    planetGroup.add(planetPivot);
+                    
+                    // Ring for Saturn
+                    if (data.hasRing) {
+                        const ringGeometry = new THREE.RingGeometry(data.size * 1.5, data.size * 2, 64);
+                        const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xebd8a2, wireframe: true, side: THREE.DoubleSide });
+                        const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+                        ringMesh.rotation.x = Math.PI / 2.5;
+                        planetMesh.add(ringMesh);
+                    }
+                    
+                    this.scene.add(planetGroup);
+                    
+                    const planetObj = {
+                        ...data,
+                        group: planetGroup,
+                        pivot: planetPivot,
+                        mesh: planetMesh,
+                        orbit: orbit,
+                        initialSpeed: data.speed,
+                    };
+                    this.planets.push(planetObj);
+                    this.interactiveObjects.push(planetMesh);
+                    planetMesh.userData.planet = planetObj; // Link back for raycasting
+                });
+            }
+
+            _createKula() {
+                const loader = new FontLoader();
+                loader.load('https://unpkg.com/three@0.164.1/examples/fonts/helvetiker_bold.typeface.json', (font) => {
+                    const textGeometry = new TextGeometry('KULA', {
+                        font: font,
+                        size: 18,
+                        height: 2,
+                        curveSegments: 12,
+                        bevelEnabled: true,
+                        bevelThickness: 0.5,
+                        bevelSize: 0.3,
+                        bevelOffset: 0,
+                        bevelSegments: 5
+                    });
+                    textGeometry.center();
+
+                    this.kulaMaterial = new THREE.ShaderMaterial({
+                        uniforms: {
+                            uTime: { value: 0 },
+                            uMouse: { value: new THREE.Vector2() },
+                            uColor: { value: new THREE.Color(0x9370db) } // MediumPurple
+                        },
+                        vertexShader: `
+                            uniform float uTime;
+                            uniform vec2 uMouse;
+                            varying vec2 vUv;
+                            varying float vDisplacement;
+
+                            // 2D simplex noise
+                            vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+                            float snoise(vec2 v) {
+                                const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+                                vec2 i  = floor(v + dot(v, C.yy) );
+                                vec2 x0 = v -   i + dot(i, C.xx);
+                                vec2 i1;
+                                i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+                                vec4 x12 = x0.xyxy + C.xxzz;
+                                x12.xy -= i1;
+                                i = mod(i, 289.0);
+                                vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
+                                vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+                                m = m*m;
+                                m = m*m;
+                                vec3 x = 2.0 * fract(p * C.www) - 1.0;
+                                vec3 h = abs(x) - 0.5;
+                                vec3 ox = floor(x + 0.5);
+                                vec3 a0 = x - ox;
+                                m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+                                vec3 g;
+                                g.x  = a0.x  * x0.x  + h.x  * x0.y;
+                                g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+                                return 130.0 * dot(m, g);
+                            }
+
+                            void main() {
+                                vUv = uv;
+                                float noise = snoise(position.xy * 0.05 + uTime * 0.2);
+                                
+                                float mouseDistance = distance(position.xy, uMouse * 100.0);
+                                float mouseEffect = smoothstep(50.0, 0.0, mouseDistance) * 10.0;
+
+                                vDisplacement = noise + mouseEffect;
+
+                                vec3 newPosition = position + normal * vDisplacement;
+                                gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+                            }
+                        `,
+                        fragmentShader: `
+                            uniform float uTime;
+                            uniform vec3 uColor;
+                            varying float vDisplacement;
+                            
+                            void main() {
+                                float intensity = sin(vDisplacement * 2.0 + uTime * 2.0) * 0.5 + 0.5;
+                                vec3 color = uColor * (0.5 + intensity);
+                                gl_FragColor = vec4(color, 1.0);
+                            }
+                        `,
+                        wireframe: true
+                    });
+                    
+                    this.kulaMesh = new THREE.Mesh(textGeometry, this.kulaMaterial);
+                    this.kulaMesh.position.set(0, 35, 0); // Position above the sun
+                    this.scene.add(this.kulaMesh);
+                });
+            }
+
+            _createQuantumField() {
+                const count = 50000;
+                const positions = new Float32Array(count * 3);
+                for (let i = 0; i < count; i++) {
+                    positions[i * 3 + 0] = (Math.random() - 0.5) * 300;
+                    positions[i * 3 + 1] = (Math.random() - 0.5) * 300;
+                    positions[i * 3 + 2] = (Math.random() - 0.5) * 300;
+                }
+
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+                this.quantumMaterial = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uTime: { value: 0 },
+                        uMouse: { value: new THREE.Vector3() },
+                        uSize: { value: 1.0 * this.renderer.getPixelRatio() },
+                        uColor: { value: new THREE.Color(0x8a2be2) }, // BlueViolet
+                        uOpacity: { value: 0.0 }
+                    },
+                    vertexShader: `
+                        uniform float uTime;
+                        uniform float uSize;
+                        uniform vec3 uMouse;
+
+                        // Simplex noise function
+                        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                        vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+                        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+                        float snoise(vec3 v) {
+                            const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+                            const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+                            vec3 i = floor(v + dot(v, C.yyy));
+                            vec3 x0 = v - i + dot(i, C.xxx);
+                            vec3 g = step(x0.yzx, x0.xyz);
+                            vec3 l = 1.0 - g;
+                            vec3 i1 = min(g.xyz, l.zxy);
+                            vec3 i2 = max(g.xyz, l.zxy);
+                            vec3 x1 = x0 - i1 + C.xxx;
+                            vec3 x2 = x0 - i2 + C.yyy;
+                            vec3 x3 = x0 - D.yyy;
+                            i = mod289(i);
+                            vec4 p = permute(permute(permute(
+                                i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                                + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                                + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+                            float n_ = 0.142857142857;
+                            vec3 ns = n_ * D.wyz - D.xzx;
+                            vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+                            vec4 x_ = floor(j * ns.z);
+                            vec4 y_ = floor(j - 7.0 * x_);
+                            vec4 x = x_ * ns.x + ns.yyyy;
+                            vec4 y = y_ * ns.x + ns.yyyy;
+                            vec4 h = 1.0 - abs(x) - abs(y);
+                            vec4 b0 = vec4(x.xy, y.xy);
+                            vec4 b1 = vec4(x.zw, y.zw);
+                            vec4 s0 = floor(b0) * 2.0 + 1.0;
+                            vec4 s1 = floor(b1) * 2.0 + 1.0;
+                            vec4 sh = -step(h, vec4(0.0));
+                            vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+                            vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+                            vec3 p0 = vec3(a0.xy, h.x);
+                            vec3 p1 = vec3(a0.zw, h.y);
+                            vec3 p2 = vec3(a1.xy, h.z);
+                            vec3 p3 = vec3(a1.zw, h.w);
+                            vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+                            p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+                            vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
+                            m = m * m;
+                            return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+                        }
+
+                        void main() {
+                            float noise = snoise(position * 0.02 + uTime * 0.1) * 5.0;
+                            vec3 displacedPosition = position + vec3(noise);
+
+                            float mouseDistance = distance(displacedPosition, uMouse);
+                            float repulsion = smoothstep(30.0, 0.0, mouseDistance) * 20.0;
+                            vec3 direction = normalize(displacedPosition - uMouse);
+                            displacedPosition += direction * repulsion;
+
+                            vec4 modelPosition = modelMatrix * vec4(displacedPosition, 1.0);
+                            vec4 viewPosition = viewMatrix * modelPosition;
+                            vec4 projectionPosition = projectionMatrix * viewPosition;
+                            gl_Position = projectionPosition;
+                            gl_PointSize = uSize * (100.0 / -viewPosition.z);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform vec3 uColor;
+                        uniform float uOpacity;
+                        void main() {
+                            float dist = distance(gl_PointCoord, vec2(0.5));
+                            float alpha = 1.0 - smoothstep(0.45, 0.5, dist);
+                            gl_FragColor = vec4(uColor, alpha * uOpacity);
+                        }
+                    `,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false
+                });
+
+                this.quantumField = new THREE.Points(geometry, this.quantumMaterial);
+                this.scene.add(this.quantumField);
+            }
+
+            _createComets() {
+                for (let i = 0; i < 5; i++) {
+                    const geometry = new THREE.BufferGeometry();
+                    const positions = new Float32Array(100 * 3);
+                    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    
+                    const material = new THREE.LineBasicMaterial({ 
+                        color: 0xffffff, 
+                        transparent: true, 
+                        opacity: 0.7,
+                        blending: THREE.AdditiveBlending 
+                    });
+                    
+                    const line = new THREE.Line(geometry, material);
+                    
+                    const comet = {
+                        line: line,
+                        life: 0,
+                        maxLife: 2 + Math.random() * 3,
+                        speed: 2 + Math.random() * 3,
+                        origin: new THREE.Vector3(
+                            (Math.random() - 0.5) * 800,
+                            (Math.random() - 0.5) * 400,
+                            (Math.random() - 0.5) * 800
+                        ),
+                        direction: new THREE.Vector3(
+                            (Math.random() - 0.5),
+                            (Math.random() - 0.5),
+                            (Math.random() - 0.5)
+                        ).normalize()
+                    };
+                    this.comets.push(comet);
+                    this.scene.add(line);
+                }
+            }
+
+            _setupEventListeners() {
+                window.addEventListener('resize', this._onResize.bind(this));
+                window.addEventListener('wheel', this._onWheel.bind(this), { passive: false });
+                window.addEventListener('mousemove', this._onMouseMove.bind(this));
+            }
+
+            _setupClocks() {
+                const chinaTimeEl = document.getElementById('china-time');
+                const ukTimeEl = document.getElementById('uk-time');
+
+                const update = () => {
+                    const now = new Date();
+                    chinaTimeEl.textContent = `CHN: ${now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Shanghai', hour12: false })}`;
+                    ukTimeEl.textContent = `UK:  ${now.toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour12: false })}`;
+                };
+                update();
+                setInterval(update, 1000);
+            }
+
+            _createMainTimeline() {
+                this.mainTimeline = gsap.timeline({ paused: true });
+
+                // 1. Planets collapse
+                this.planets.forEach(p => {
+                    this.mainTimeline.to(p.group.scale, {
+                        x: 0, y: 0, z: 0,
+                        duration: 1,
+                        ease: 'power2.in'
+                    }, 0);
+                    this.mainTimeline.to(p, {
+                        speed: p.initialSpeed * 20,
+                        duration: 1,
+                        ease: 'power2.in'
+                    }, 0);
+                    this.mainTimeline.to(p.orbit.material, {
+                        opacity: 0,
+                        duration: 0.5,
+                        ease: 'power2.in'
+                    }, 0);
+                });
+
+                // 2. Sun reaction
+                this.mainTimeline.to(this.sun.scale, {
+                    x: 1.5, y: 1.5, z: 1.5,
+                    duration: 0.5,
+                    ease: 'expo.out',
+                    yoyo: true,
+                    repeat: 1
+                }, 0.8);
+
+                // 3. KULA transform
+                if (this.kulaMesh) {
+                    this.mainTimeline.to(this.kulaMesh.scale, {
+                        x: 0.2, y: 0.2, z: 0.2,
+                        duration: 1.5,
+                        ease: 'power3.inOut'
+                    }, 0);
+                     this.mainTimeline.to(this.kulaMesh.position, {
+                        y: 0,
+                        duration: 1.5,
+                        ease: 'power3.inOut'
+                    }, 0);
+                }
+
+                // 4. Quantum field appears
+                this.mainTimeline.to(this.quantumMaterial.uniforms.uOpacity, {
+                    value: 1.0,
+                    duration: 1.5,
+                    ease: 'power2.inOut'
+                }, 0.5);
+
+                // 5. Camera zoom
+                this.mainTimeline.to(this.camera.position, {
+                    z: 50,
+                    y: 0,
+                    duration: 2,
+                    ease: 'power3.inOut'
+                }, 0);
+            }
+
+            _onResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            }
+
+            _onWheel(event) {
+                event.preventDefault();
+                const scrollAmount = event.deltaY > 0 ? 0.05 : -0.05;
+                this.scrollProgress = Math.max(0, Math.min(1, this.scrollProgress + scrollAmount));
+                
+                gsap.to(this.mainTimeline, {
+                    progress: this.scrollProgress,
+                    duration: 1.5,
+                    ease: 'power3.out'
+                });
+            }
+
+            _onMouseMove(event) {
+                this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                this.normalizedMouse.x = event.clientX / window.innerWidth;
+                this.normalizedMouse.y = 1.0 - (event.clientY / window.innerHeight);
+            }
+
+            _updateRaycaster() {
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+                const intersects = this.raycaster.intersectObjects(this.interactiveObjects);
+
+                if (intersects.length > 0) {
+                    const intersectedObject = intersects[0].object;
+                    const planetData = intersectedObject.userData.planet;
+
+                    if (this.hoveredPlanet !== planetData) {
+                        // Debounce hover effect
+                        if (this.hoveredPlanet) {
+                            gsap.to(this.hoveredPlanet.mesh.scale, { x: 1, y: 1, z: 1, duration: 0.3 });
+                        }
+                        this.hoveredPlanet = planetData;
+                        gsap.to(this.hoveredPlanet.mesh.scale, { x: 1.5, y: 1.5, z: 1.5, duration: 0.3 });
+                    }
+
+                    this.planetLabel.textContent = planetData.name;
+                    this.planetLabel.style.left = `${(this.mouse.x * 0.5 + 0.5) * window.innerWidth}px`;
+                    this.planetLabel.style.top = `${(-this.mouse.y * 0.5 + 0.5) * window.innerHeight}px`;
+                    this.planetLabel.classList.add('visible');
+
+                } else {
+                    if (this.hoveredPlanet) {
+                        gsap.to(this.hoveredPlanet.mesh.scale, { x: 1, y: 1, z: 1, duration: 0.3 });
+                        this.hoveredPlanet = null;
+                        this.planetLabel.classList.remove('visible');
+                    }
+                }
+            }
+
+            _updateComets(deltaTime) {
+                this.comets.forEach(comet => {
+                    comet.life += deltaTime;
+                    if (comet.life > comet.maxLife) {
+                        // Reset comet
+                        comet.life = 0;
+                        comet.origin.set(
+                            (Math.random() - 0.5) * 800,
+                            (Math.random() - 0.5) * 400,
+                            (Math.random() - 0.5) * 800
+                        );
+                        comet.direction.set(
+                            (Math.random() - 0.5),
+                            (Math.random() - 0.5),
+                            (Math.random() - 0.5)
+                        ).normalize();
+                    }
+
+                    const positions = comet.line.geometry.attributes.position.array;
+                    for (let i = 0; i < 100; i++) {
+                        const progress = (i / 99);
+                        const currentPos = new THREE.Vector3().copy(comet.origin)
+                            .add(comet.direction.clone().multiplyScalar(comet.life * 100 * comet.speed * (1 - progress)));
+                        
+                        positions[i * 3] = currentPos.x;
+                        positions[i * 3 + 1] = currentPos.y;
+                        positions[i * 3 + 2] = currentPos.z;
+                    }
+                    comet.line.geometry.attributes.position.needsUpdate = true;
+                });
+            }
+
+            _animate() {
+                requestAnimationFrame(this._animate.bind(this));
+                const elapsedTime = this.clock.getElapsedTime();
+                const deltaTime = this.clock.getDelta();
+
+                // Animate planets
+                this.planets.forEach(p => {
+                    p.pivot.rotation.y += p.speed;
+                    p.mesh.rotation.y += 0.01;
+                    p.mesh.rotation.x += 0.005;
+                });
+                
+                // Animate KULA shader
+                if (this.kulaMaterial) {
+                    this.kulaMaterial.uniforms.uTime.value = elapsedTime;
+                    this.kulaMaterial.uniforms.uMouse.value.lerp(this.mouse, 0.1);
+                }
+
+                // Animate Quantum Field
+                this.quantumMaterial.uniforms.uTime.value = elapsedTime;
+                // Update mouse in 3D space for quantum field interaction
+                const mouse3D = new THREE.Vector3(this.mouse.x, this.mouse.y, 0.5);
+                mouse3D.unproject(this.camera);
+                this.quantumMaterial.uniforms.uMouse.value.lerp(mouse3D, 0.1);
+
+                // Update comets
+                this._updateComets(deltaTime);
+
+                // Update raycaster only if solar system is visible
+                if (this.scrollProgress < 0.5) {
+                    this._updateRaycaster();
+                } else {
+                     if (this.hoveredPlanet) {
+                        gsap.to(this.hoveredPlanet.mesh.scale, { x: 1, y: 1, z: 1, duration: 0.3 });
+                        this.hoveredPlanet = null;
+                        this.planetLabel.classList.remove('visible');
+                    }
+                }
+
+                // The camera might be controlled by GSAP, but we can add subtle mouse movement
+                const parallaxX = this.mouse.x * 5;
+                const parallaxY = -this.mouse.y * 5;
+                this.camera.position.x += (parallaxX - this.camera.position.x) * 0.02;
+                // We only apply y parallax when not in quantum field view
+                if(this.scrollProgress < 0.5) {
+                    this.camera.position.y += (20 + parallaxY - this.camera.position.y) * 0.02;
+                } else {
+                    this.camera.position.y += (parallaxY - this.camera.position.y) * 0.02;
+                }
+                this.camera.lookAt(this.scene.position);
+
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Initialize the app
+        new QuantumWebsite();
+
+    </script>
+</body>
+</html>
